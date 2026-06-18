@@ -166,10 +166,10 @@ function SearchPage() {
                 <p className="text-sm leading-relaxed text-foreground/90">{highlight(r.snippet, r.keyword)}</p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button size="sm" variant="outline" asChild>
-                    <Link to={api.manualViewerUrl(r.manualId, r.page, r.keyword)}><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open Manual</Link>
+                    <a href={api.manualViewerUrl(r.manualId, r.page, r.keyword)} target="_blank" rel="noreferrer"><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open Manual</a>
                   </Button>
                   <Button size="sm" variant="outline" asChild>
-                    <Link to={api.manualViewerUrl(r.manualId, r.page, r.keyword)}>View Page {r.page}</Link>
+                    <a href={api.manualViewerUrl(r.manualId, r.page, r.keyword)} target="_blank" rel="noreferrer">View Page {r.page}</a>
                   </Button>
                   <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(r.snippet); toast.success("Snippet copied"); }}>
                     <Copy className="mr-1.5 h-3.5 w-3.5" />Copy
@@ -198,18 +198,20 @@ function SearchPage() {
                     <ul className="space-y-1.5 text-sm">
                       {[selected.page - 1, selected.page + 1, selected.page + 5].filter((p) => p > 0).map((p) => (
                         <li key={p}>
-                          <Link
-                            to={api.manualViewerUrl(selected.manualId, p, selected.keyword)}
+                          <a
+                            href={api.manualViewerUrl(selected.manualId, p, selected.keyword)}
+                            target="_blank"
+                            rel="noreferrer"
                             className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left hover:bg-muted"
                           >
                             <span>Page {p}</span>
                             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Link>
+                          </a>
                         </li>
                       ))}
                     </ul>
                   </div>
-                  <Button className="w-full" asChild><Link to={api.manualViewerUrl(selected.manualId, selected.page, selected.keyword)}><ExternalLink className="mr-2 h-4 w-4" />Open Manual Viewer</Link></Button>
+                  <Button className="w-full" asChild><a href={api.manualViewerUrl(selected.manualId, selected.page, selected.keyword)} target="_blank" rel="noreferrer"><ExternalLink className="mr-2 h-4 w-4" />Open Manual Viewer</a></Button>
                 </div>
               ) : (
                 <p className="py-8 text-center text-sm text-muted-foreground">Select a result to preview.</p>

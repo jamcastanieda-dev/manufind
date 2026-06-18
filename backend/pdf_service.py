@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import os
+import re
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 
 OCR_RENDER_SCALE = 3
 EMBEDDED_TEXT_MIN_CHARS = 80
+OCR_HIGHLIGHT_MIN_CONFIDENCE = 8
+OCR_FUZZY_MATCH_MIN_CONFIDENCE = 20
+OCR_FUZZY_MATCH_RATIO = 0.72
 
 
 def _configure_tesseract() -> None:
@@ -20,14 +25,18 @@ def _configure_tesseract() -> None:
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
 
-def _preprocess_image(image: Any) -> Any:
+def _enhance_image(image: Any) -> Any:
     """Improve OCR accuracy for small/scanned text before Tesseract runs."""
     from PIL import ImageFilter, ImageOps
 
     grayscale = ImageOps.grayscale(image)
     contrasted = ImageOps.autocontrast(grayscale)
-    sharpened = contrasted.filter(ImageFilter.SHARPEN)
-    return sharpened.point(lambda value: 0 if value < 170 else 255, mode="1")
+    return contrasted.filter(ImageFilter.SHARPEN)
+
+
+def _preprocess_image(image: Any) -> Any:
+    enhanced = _enhance_image(image)
+    return enhanced.point(lambda value: 0 if value < 170 else 255, mode="1")
 
 
 def _ocr_page(page: Any) -> str:
@@ -65,6 +74,48 @@ def _ocr_page(page: Any) -> str:
             "Tesseract OCR is not installed or is not on PATH. "
             "Install Tesseract or set the TESSERACT_CMD environment variable."
         ) from exc
+
+
+def _page_to_processed_image(page: Any) -> tuple[Any, int, int]:
+    import fitz
+    from PIL import Image
+
+    matrix = fitz.Matrix(OCR_RENDER_SCALE, OCR_RENDER_SCALE)
+    pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    processed_image = _preprocess_image(image)
+    return processed_image, pixmap.width, pixmap.height
+
+
+def _page_to_ocr_images(page: Any) -> tuple[Any, Any, int, int]:
+    import fitz
+    from PIL import Image
+
+    matrix = fitz.Matrix(OCR_RENDER_SCALE, OCR_RENDER_SCALE)
+    pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+    enhanced_image = _enhance_image(image)
+    threshold_image = enhanced_image.point(lambda value: 0 if value < 170 else 255, mode="1")
+    return enhanced_image, threshold_image, pixmap.width, pixmap.height
+
+
+def _normalized_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _is_match(normalized_word: str, normalized_query_tokens: list[str]) -> tuple[bool, bool]:
+    for token in normalized_query_tokens:
+        if (
+            normalized_word == token
+            or normalized_word in token
+            or token in normalized_word
+        ):
+            return True, False
+
+        if SequenceMatcher(None, normalized_word, token).ratio() >= OCR_FUZZY_MATCH_RATIO:
+            return True, True
+
+    return False, False
 
 
 def _should_run_ocr(text: str) -> bool:
@@ -117,6 +168,136 @@ def extract_pdf_pages(file_path: Path) -> list[dict[str, object]]:
         document.close()
 
     return pages
+
+
+def extract_page_highlight_boxes(
+    file_path: Path,
+    page_number: int,
+    query: str,
+) -> dict[str, object]:
+    try:
+        import fitz
+        import pytesseract
+        from pytesseract import TesseractNotFoundError
+    except ImportError as exc:
+        raise RuntimeError(
+            "OCR highlight dependencies are missing. Run: pip install PyMuPDF pytesseract Pillow"
+        ) from exc
+
+    normalized_query_tokens = [_normalized_token(token) for token in query.split()]
+    normalized_query_tokens = [token for token in normalized_query_tokens if token]
+
+    if not normalized_query_tokens:
+        return {"page": page_number, "boxes": []}
+
+    _configure_tesseract()
+
+    document = fitz.open(str(file_path))
+    try:
+        if page_number < 1 or page_number > document.page_count:
+            raise ValueError(f"Page {page_number} is out of range for this PDF")
+
+        page = document.load_page(page_number - 1)
+        enhanced_image, threshold_image, image_width, image_height = _page_to_ocr_images(page)
+
+        try:
+            ocr_passes = [
+                pytesseract.image_to_data(
+                    enhanced_image,
+                    config="--oem 3 --psm 6",
+                    output_type=pytesseract.Output.DICT,
+                ),
+                pytesseract.image_to_data(
+                    enhanced_image,
+                    config="--oem 3 --psm 11",
+                    output_type=pytesseract.Output.DICT,
+                ),
+                pytesseract.image_to_data(
+                    threshold_image,
+                    config="--oem 3 --psm 6",
+                    output_type=pytesseract.Output.DICT,
+                ),
+                pytesseract.image_to_data(
+                    threshold_image,
+                    config="--oem 3 --psm 11",
+                    output_type=pytesseract.Output.DICT,
+                ),
+            ]
+        except TesseractNotFoundError as exc:
+            configured_path = os.getenv("TESSERACT_CMD")
+            if configured_path:
+                raise RuntimeError(
+                    f"Tesseract was not found at TESSERACT_CMD={configured_path!r}. "
+                    "Install Tesseract OCR or update the TESSERACT_CMD environment variable."
+                ) from exc
+            raise RuntimeError(
+                "Tesseract OCR is not installed or is not on PATH. "
+                "Install Tesseract or set the TESSERACT_CMD environment variable."
+            ) from exc
+
+        boxes: list[dict[str, object]] = []
+        seen_boxes: set[tuple[int, int, int, int]] = set()
+
+        for data in ocr_passes:
+            total_items = len(data["text"])
+            for index in range(total_items):
+                raw_text = str(data["text"][index] or "").strip()
+                confidence = str(data["conf"][index] or "").strip()
+                normalized_word = _normalized_token(raw_text)
+
+                if not raw_text or not normalized_word:
+                    continue
+
+                parsed_confidence = 0.0
+                try:
+                    if confidence:
+                        parsed_confidence = float(confidence)
+                except ValueError:
+                    parsed_confidence = 0.0
+
+                matches, is_fuzzy = _is_match(normalized_word, normalized_query_tokens)
+                if not matches:
+                    continue
+
+                if parsed_confidence < OCR_HIGHLIGHT_MIN_CONFIDENCE:
+                    continue
+                if is_fuzzy and parsed_confidence < OCR_FUZZY_MATCH_MIN_CONFIDENCE:
+                    continue
+
+                left = int(data["left"][index])
+                top = int(data["top"][index])
+                width = int(data["width"][index])
+                height = int(data["height"][index])
+
+                if width <= 0 or height <= 0:
+                    continue
+
+                dedupe_key = (
+                    round(left / image_width * 1000),
+                    round(top / image_height * 1000),
+                    round(width / image_width * 1000),
+                    round(height / image_height * 1000),
+                )
+                if dedupe_key in seen_boxes:
+                    continue
+                seen_boxes.add(dedupe_key)
+
+                boxes.append(
+                    {
+                        "text": raw_text,
+                        "leftRatio": max(0.0, (left - 4) / image_width),
+                        "topRatio": max(0.0, (top - 2) / image_height),
+                        "widthRatio": min(1.0, (width + 8) / image_width),
+                        "heightRatio": min(1.0, (height + 4) / image_height),
+                    }
+                )
+
+        return {
+            "page": page_number,
+            "boxes": boxes,
+        }
+    finally:
+        document.close()
 
 
 def make_snippet(text: str, query: str, radius: int = 120) -> str:

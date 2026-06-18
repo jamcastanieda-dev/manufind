@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from database import UPLOAD_DIR, get_connection, init_db, row_to_dict, rows_to_dicts
-from pdf_service import extract_pdf_pages, make_snippet
+from pdf_service import extract_page_highlight_boxes, extract_pdf_pages, make_snippet
 from schemas import CaseCreate, CaseUpdate, MachineCreate, MachineUpdate, ManualCreate
 
 app = FastAPI(title="MTCE Manual Search API", version="1.0.0")
@@ -458,7 +458,36 @@ def get_manual_file(manual_id: int):
             "Upload a real PDF from the Upload Manual page to open the actual document here.",
             media_type="text/plain",
         )
-    return FileResponse(file_path, media_type="application/pdf", filename=manual["fileName"])
+    return FileResponse(
+        file_path,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{manual["fileName"]}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.get("/manuals/{manual_id}/highlights")
+def get_manual_highlights(
+    manual_id: int,
+    page: int = Query(..., ge=1),
+    q: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    manual = get_manual(manual_id)
+    file_path = manual.get("filePath")
+    if not file_path or not Path(file_path).exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Original PDF file was not found on the backend server",
+        )
+
+    try:
+        return extract_page_highlight_boxes(Path(file_path), page, q)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 

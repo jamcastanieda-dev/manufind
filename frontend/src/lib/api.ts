@@ -68,6 +68,19 @@ export interface SearchHistoryItem {
   resultsCount: number;
 }
 
+export interface ManualHighlightBox {
+  text: string;
+  leftRatio: number;
+  topRatio: number;
+  widthRatio: number;
+  heightRatio: number;
+}
+
+export interface ManualHighlightResponse {
+  page: number;
+  boxes: ManualHighlightBox[];
+}
+
 export interface DashboardData {
   stats: {
     machines: number;
@@ -119,6 +132,8 @@ export const api = {
     const suffix = search.toString();
     return suffix ? `/manuals/${id}?${suffix}` : `/manuals/${id}`;
   },
+  manualHighlights: (id: number, page: number, q: string) =>
+    apiFetch<ManualHighlightResponse>(`/manuals/${id}/highlights?page=${page}&q=${encodeURIComponent(q)}`),
   uploadManual: (formData: FormData) =>
     apiFetch<Manual>("/manuals/upload", { method: "POST", body: formData }),
 

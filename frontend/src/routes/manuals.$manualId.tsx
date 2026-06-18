@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { api, type Manual } from "@/lib/api";
+import { api, type Manual, type ManualHighlightBox } from "@/lib/api";
 
 type TextSegment = {
   type: "text" | "highlight";
@@ -75,6 +75,11 @@ function ManualViewerPage() {
   const { data: manual, isLoading, isError } = useQuery({
     queryKey: ["manual", manualId],
     queryFn: () => api.manual(Number(manualId)),
+  });
+  const { data: highlightData } = useQuery({
+    queryKey: ["manual-highlights", manualId, page, query],
+    queryFn: () => api.manualHighlights(Number(manualId), page, query),
+    enabled: Boolean(manual?.filePath && query.trim()),
   });
 
   useEffect(() => {
@@ -225,6 +230,7 @@ function ManualViewerPage() {
   };
 
   const missingPdf = manual && !manual.filePath;
+  const highlightBoxes: ManualHighlightBox[] = highlightData?.boxes ?? [];
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -356,8 +362,24 @@ function ManualViewerPage() {
                   <div className="overflow-auto rounded-2xl border bg-muted/20 p-3">
                     <div className="relative mx-auto w-fit">
                       <canvas ref={canvasRef} className="max-w-full rounded-lg bg-white shadow-sm" />
+                      {highlightBoxes.length > 0 && (
+                        <div className="pointer-events-none absolute inset-0 z-10">
+                          {highlightBoxes.map((box, index) => (
+                            <div
+                              key={`${box.text}-${index}`}
+                              className="absolute rounded bg-yellow-300/60 ring-1 ring-yellow-500/70"
+                              style={{
+                                left: `${box.leftRatio * 100}%`,
+                                top: `${box.topRatio * 100}%`,
+                                width: `${box.widthRatio * 100}%`,
+                                height: `${box.heightRatio * 100}%`,
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
                       {viewerText.length > 0 && (
-                        <div className="pointer-events-none absolute inset-0">
+                        <div className="pointer-events-none absolute inset-0 z-20">
                           {viewerText.map((item) => (
                             <span
                               key={item.id}
