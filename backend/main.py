@@ -258,12 +258,107 @@ def search_manuals(
     return {"query": q, "results": results, "resultsCount": len(results)}
 
 
-@app.get("/manuals/{manual_id}")
-def get_manual(manual_id: int) -> dict[str, Any]:
-    manual = next((m for m in list_manuals() if m["id"] == manual_id), None)
+def find_manual_or_404(manual_id: int) -> dict[str, Any]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                manuals.id,
+                manuals.title,
+                manuals.machine_id AS machineId,
+                machines.name AS machineName,
+                machines.model,
+                manuals.file_name AS fileName,
+                manuals.upload_date AS uploadDate,
+                manuals.file_type AS fileType,
+                manuals.status,
+                manuals.pages,
+                manuals.description,
+                manuals.file_path AS filePath
+            FROM manuals
+            JOIN machines ON machines.id = manuals.machine_id
+            WHERE manuals.id = ?
+            """,
+            (manual_id,),
+        ).fetchone()
+
+    manual = row_to_dict(row)
     if not manual:
         raise HTTPException(status_code=404, detail="Manual not found")
     return manual
+
+
+@app.get("/manuals/{manual_id}")
+def get_manual(manual_id: int) -> dict[str, Any]:
+    return find_manual_or_404(manual_id)
+
+
+def index_manual_file(manual_id: int, file_path: Path) -> dict[str, Any]:
+    """Extract searchable text from a PDF and save it into manual_pages."""
+    pages = extract_pdf_pages(file_path)
+
+    searchable_pages: list[dict[str, Any]] = []
+    extracted_characters = 0
+
+    for page in pages:
+        text = str(page.get("text") or "").strip()
+        extracted_characters += len(text)
+
+        if text:
+            searchable_pages.append(
+                {
+                    "page_number": int(page["page_number"]),
+                    "text": text,
+                }
+            )
+
+    status = "Indexed" if extracted_characters > 0 else "Failed"
+
+    with get_connection() as conn:
+        conn.execute("DELETE FROM manual_pages WHERE manual_id = ?", (manual_id,))
+
+        for page in searchable_pages:
+            conn.execute(
+                "INSERT INTO manual_pages (manual_id, page_number, text) VALUES (?, ?, ?)",
+                (manual_id, page["page_number"], page["text"]),
+            )
+
+        conn.execute(
+            "UPDATE manuals SET status = ?, pages = ? WHERE id = ?",
+            (status, len(pages), manual_id),
+        )
+        conn.commit()
+
+    return {
+        "manual": find_manual_or_404(manual_id),
+        "indexedPages": len(searchable_pages),
+        "extractedCharacters": extracted_characters,
+        "status": status,
+    }
+
+
+@app.post("/manuals/{manual_id}/reindex")
+def reindex_manual(manual_id: int) -> dict[str, Any]:
+    manual = find_manual_or_404(manual_id)
+
+    file_path = manual.get("filePath")
+    if not file_path or not Path(file_path).exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Original PDF file was not found on the backend server",
+        )
+
+    try:
+        return index_manual_file(manual_id, Path(file_path))
+    except Exception as exc:
+        with get_connection() as conn:
+            conn.execute("UPDATE manuals SET status = ? WHERE id = ?", ("Failed", manual_id))
+            conn.commit()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF re-indexing failed: {exc}",
+        ) from exc
 
 
 @app.delete("/manuals/{manual_id}")
@@ -288,6 +383,7 @@ async def upload_manual(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     get_machine_or_404(machine_id)
+
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
@@ -298,32 +394,57 @@ async def upload_manual(
     with file_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    status = "Indexed"
-    pages: list[dict[str, object]] = []
-    try:
-        pages = extract_pdf_pages(file_path)
-        if len(pages) == 0:
-            status = "Failed"
-    except Exception:
-        status = "Failed"
-
+    # Create manual record first.
+    # We mark it Processing while OCR/text extraction runs.
     with get_connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO manuals (title, machine_id, file_name, file_path, status, pages, description)
+            INSERT INTO manuals (
+                title,
+                machine_id,
+                file_name,
+                file_path,
+                status,
+                pages,
+                description
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (title, machine_id, file.filename, str(file_path), status, len(pages), description),
+            (
+                title,
+                machine_id,
+                file.filename,
+                str(file_path),
+                "Processing",
+                0,
+                description,
+            ),
         )
-        manual_id = cursor.lastrowid
-        for page in pages:
-            conn.execute(
-                "INSERT INTO manual_pages (manual_id, page_number, text) VALUES (?, ?, ?)",
-                (manual_id, page["page_number"], page["text"]),
-            )
-        conn.commit()
 
-    return get_manual(manual_id)
+        conn.commit()
+        manual_id = cursor.lastrowid
+
+    try:
+        # This uses the shared indexing function.
+        # If pdf_service.py supports OCR, scanned PDFs will be readable.
+        index_result = index_manual_file(manual_id, file_path)
+        return index_result["manual"]
+
+    except Exception as exc:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE manuals SET status = ? WHERE id = ?",
+                (
+                    "Failed",
+                    manual_id,
+                ),
+            )
+            conn.commit()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Upload saved, but PDF indexing failed: {exc}",
+        ) from exc
 
 
 @app.get("/manuals/{manual_id}/file")

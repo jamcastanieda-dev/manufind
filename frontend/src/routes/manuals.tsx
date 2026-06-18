@@ -117,9 +117,9 @@ function ManualsPage() {
                   <Link to="/search"><Search className="mr-2 h-4 w-4" />Search</Link>
                 </Button>
                 <Button size="sm" variant="outline" asChild>
-                  <a href={api.manualFileUrl(m.id)} target="_blank" rel="noreferrer" title="Open PDF">
+                  <Link to={api.manualViewerUrl(m.id)} title="Open manual">
                     <ExternalLink className="h-4 w-4" />
-                  </a>
+                  </Link>
                 </Button>
                 <Button
                   size="sm"

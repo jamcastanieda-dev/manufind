@@ -109,8 +109,16 @@ export const api = {
   deleteMachine: (id: number) => apiFetch<{ message: string }>(`/machines/${id}`, { method: "DELETE" }),
 
   manuals: () => apiFetch<Manual[]>("/manuals"),
+  manual: (id: number) => apiFetch<Manual>(`/manuals/${id}`),
   deleteManual: (id: number) => apiFetch<{ message: string }>(`/manuals/${id}`, { method: "DELETE" }),
   manualFileUrl: (id: number) => `${API_URL}/manuals/${id}/file`,
+  manualViewerUrl: (id: number, page?: number, q?: string) => {
+    const search = new URLSearchParams();
+    if (page && page > 0) search.set("page", String(page));
+    if (q?.trim()) search.set("q", q.trim());
+    const suffix = search.toString();
+    return suffix ? `/manuals/${id}?${suffix}` : `/manuals/${id}`;
+  },
   uploadManual: (formData: FormData) =>
     apiFetch<Manual>("/manuals/upload", { method: "POST", body: formData }),
 

@@ -17,6 +17,7 @@ import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as CasesRouteImport } from './routes/cases'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ManualsManualIdRouteImport } from './routes/manuals.$manualId'
 
 const UploadRoute = UploadRouteImport.update({
   id: '/upload',
@@ -58,26 +59,33 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ManualsManualIdRoute = ManualsManualIdRouteImport.update({
+  id: '/$manualId',
+  path: '/$manualId',
+  getParentRoute: () => ManualsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cases': typeof CasesRoute
   '/history': typeof HistoryRoute
   '/machines': typeof MachinesRoute
-  '/manuals': typeof ManualsRoute
+  '/manuals': typeof ManualsRouteWithChildren
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/manuals/$manualId': typeof ManualsManualIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cases': typeof CasesRoute
   '/history': typeof HistoryRoute
   '/machines': typeof MachinesRoute
-  '/manuals': typeof ManualsRoute
+  '/manuals': typeof ManualsRouteWithChildren
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/manuals/$manualId': typeof ManualsManualIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -85,10 +93,11 @@ export interface FileRoutesById {
   '/cases': typeof CasesRoute
   '/history': typeof HistoryRoute
   '/machines': typeof MachinesRoute
-  '/manuals': typeof ManualsRoute
+  '/manuals': typeof ManualsRouteWithChildren
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/upload': typeof UploadRoute
+  '/manuals/$manualId': typeof ManualsManualIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/upload'
+    | '/manuals/$manualId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/upload'
+    | '/manuals/$manualId'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/upload'
+    | '/manuals/$manualId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -128,7 +140,7 @@ export interface RootRouteChildren {
   CasesRoute: typeof CasesRoute
   HistoryRoute: typeof HistoryRoute
   MachinesRoute: typeof MachinesRoute
-  ManualsRoute: typeof ManualsRoute
+  ManualsRoute: typeof ManualsRouteWithChildren
   SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
   UploadRoute: typeof UploadRoute
@@ -192,15 +204,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/manuals/$manualId': {
+      id: '/manuals/$manualId'
+      path: '/$manualId'
+      fullPath: '/manuals/$manualId'
+      preLoaderRoute: typeof ManualsManualIdRouteImport
+      parentRoute: typeof ManualsRoute
+    }
   }
 }
+
+interface ManualsRouteChildren {
+  ManualsManualIdRoute: typeof ManualsManualIdRoute
+}
+
+const ManualsRouteChildren: ManualsRouteChildren = {
+  ManualsManualIdRoute: ManualsManualIdRoute,
+}
+
+const ManualsRouteWithChildren =
+  ManualsRoute._addFileChildren(ManualsRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CasesRoute: CasesRoute,
   HistoryRoute: HistoryRoute,
   MachinesRoute: MachinesRoute,
-  ManualsRoute: ManualsRoute,
+  ManualsRoute: ManualsRouteWithChildren,
   SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
   UploadRoute: UploadRoute,

@@ -10,7 +10,6 @@ React + FastAPI project based on the Lovable UI reference.
 ## Run the backend
 
 ```bash
-cd backend
 python -m venv .venv
 
 # Windows
@@ -19,6 +18,7 @@ python -m venv .venv
 # macOS/Linux
 source .venv/bin/activate
 
+cd backend
 pip install -r requirements.txt
 fastapi dev main.py
 ```
@@ -73,6 +73,5 @@ To change it, copy `.env.example` to `.env` inside `frontend/` and edit `VITE_AP
 ## Good next steps
 
 1. Add real authentication and user roles.
-2. Add a real PDF viewer page instead of opening the raw PDF file.
-3. Improve search with SQLite FTS5 or a vector database.
-4. Add users/permissions for Admin, Technician, and Operator.
+2. Improve search with SQLite FTS5 or a vector database.
+3. Add users/permissions for Admin, Technician, and Operator.

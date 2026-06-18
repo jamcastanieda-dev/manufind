@@ -4,16 +4,18 @@ FastAPI + SQLite backend for the MTCE Manual Search React UI.
 
 ## Setup
 
+From the repo root:
+
 ```bash
-cd backend
 python -m venv .venv
 
 # Windows
-.venv\Scripts\activate
+.\.venv\Scripts\activate
 
 # macOS/Linux
 source .venv/bin/activate
 
+cd backend
 pip install -r requirements.txt
 fastapi dev main.py
 ```
@@ -25,6 +27,8 @@ http://127.0.0.1:8000/docs
 ```
 
 The SQLite database is created automatically at `backend/data/mtce_manual_search.db` and seeded with sample machines, manuals, cases, and searchable manual text.
+
+The project uses a single repo-level virtual environment at `.venv/`. Do not create `backend/.venv`.
 
 ## Main endpoints
 

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Search, FileText, ExternalLink, Copy, ChevronRight, Loader2, BookOpen } from "lucide-react";
@@ -166,9 +166,11 @@ function SearchPage() {
                 <p className="text-sm leading-relaxed text-foreground/90">{highlight(r.snippet, r.keyword)}</p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button size="sm" variant="outline" asChild>
-                    <a href={api.manualFileUrl(r.manualId)} target="_blank" rel="noreferrer"><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open Manual</a>
+                    <Link to={api.manualViewerUrl(r.manualId, r.page, r.keyword)}><ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open Manual</Link>
                   </Button>
-                  <Button size="sm" variant="outline">View Page {r.page}</Button>
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to={api.manualViewerUrl(r.manualId, r.page, r.keyword)}>View Page {r.page}</Link>
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(r.snippet); toast.success("Snippet copied"); }}>
                     <Copy className="mr-1.5 h-3.5 w-3.5" />Copy
                   </Button>
@@ -196,15 +198,18 @@ function SearchPage() {
                     <ul className="space-y-1.5 text-sm">
                       {[selected.page - 1, selected.page + 1, selected.page + 5].filter((p) => p > 0).map((p) => (
                         <li key={p}>
-                          <button className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left hover:bg-muted">
+                          <Link
+                            to={api.manualViewerUrl(selected.manualId, p, selected.keyword)}
+                            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left hover:bg-muted"
+                          >
                             <span>Page {p}</span>
                             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                          </button>
+                          </Link>
                         </li>
                       ))}
                     </ul>
                   </div>
-                  <Button className="w-full" asChild><a href={api.manualFileUrl(selected.manualId)} target="_blank" rel="noreferrer"><ExternalLink className="mr-2 h-4 w-4" />Open PDF Viewer</a></Button>
+                  <Button className="w-full" asChild><Link to={api.manualViewerUrl(selected.manualId, selected.page, selected.keyword)}><ExternalLink className="mr-2 h-4 w-4" />Open Manual Viewer</Link></Button>
                 </div>
               ) : (
                 <p className="py-8 text-center text-sm text-muted-foreground">Select a result to preview.</p>
