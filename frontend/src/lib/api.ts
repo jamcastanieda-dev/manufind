@@ -11,6 +11,7 @@ export interface Machine {
   model: string;
   department: string;
   status: MachineStatus;
+  imagePath?: string | null;
   manualsCount: number;
   openCases: number;
 }
@@ -115,10 +116,15 @@ export const api = {
   dashboard: () => apiFetch<DashboardData>("/dashboard"),
 
   machines: () => apiFetch<Machine[]>("/machines"),
+  machineImageUrl: (id: number) => `${API_URL}/machines/${id}/image`,
   createMachine: (payload: Omit<Machine, "id" | "manualsCount" | "openCases">) =>
     apiFetch<Machine>("/machines", { method: "POST", body: JSON.stringify(payload) }),
+  createMachineForm: (formData: FormData) =>
+    apiFetch<Machine>("/machines/form", { method: "POST", body: formData }),
   updateMachine: (id: number, payload: Partial<Omit<Machine, "id" | "manualsCount" | "openCases">>) =>
     apiFetch<Machine>(`/machines/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  updateMachineForm: (id: number, formData: FormData) =>
+    apiFetch<Machine>(`/machines/${id}/form`, { method: "PUT", body: formData }),
   deleteMachine: (id: number) => apiFetch<{ message: string }>(`/machines/${id}`, { method: "DELETE" }),
 
   manuals: () => apiFetch<Manual[]>("/manuals"),

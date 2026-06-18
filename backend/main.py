@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +10,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from database import UPLOAD_DIR, get_connection, init_db, row_to_dict, rows_to_dicts
+from database import MACHINE_IMAGE_DIR, UPLOAD_DIR, get_connection, init_db, row_to_dict, rows_to_dicts
 from pdf_service import extract_page_highlight_boxes, extract_pdf_pages, make_snippet
 from schemas import CaseCreate, CaseUpdate, MachineCreate, MachineUpdate, ManualCreate
 
@@ -65,6 +66,7 @@ def machine_rows() -> list[dict[str, Any]]:
                 m.model,
                 m.department,
                 m.status,
+                m.image_path AS imagePath,
                 COUNT(DISTINCT manuals.id) AS manualsCount,
                 COUNT(DISTINCT CASE WHEN cases.status != 'Resolved' THEN cases.id END) AS openCases
             FROM machines m
@@ -75,6 +77,15 @@ def machine_rows() -> list[dict[str, Any]]:
             """
         ).fetchall()
     return rows_to_dicts(rows)
+
+
+def save_machine_image(image: UploadFile) -> str:
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    safe_name = f"{timestamp}_{Path(image.filename or 'machine-image').name.replace(' ', '_')}"
+    image_path = MACHINE_IMAGE_DIR / safe_name
+    with image_path.open("wb") as buffer:
+        shutil.copyfileobj(image.file, buffer)
+    return str(image_path)
 
 
 @app.get("/dashboard")
@@ -115,8 +126,27 @@ def list_machines() -> list[dict[str, Any]]:
 def create_machine(machine: MachineCreate) -> dict[str, Any]:
     with get_connection() as conn:
         cursor = conn.execute(
-            "INSERT INTO machines (name, model, department, status) VALUES (?, ?, ?, ?)",
-            (machine.name, machine.model, machine.department, machine.status),
+            "INSERT INTO machines (name, model, department, status, image_path) VALUES (?, ?, ?, ?, ?)",
+            (machine.name, machine.model, machine.department, machine.status, machine.image_path),
+        )
+        conn.commit()
+        machine_id = cursor.lastrowid
+    return get_machine(machine_id)
+
+
+@app.post("/machines/form", status_code=201)
+async def create_machine_form(
+    name: str = Form(...),
+    model: str = Form(...),
+    department: str = Form(...),
+    status: str = Form("Running"),
+    image: UploadFile | None = File(None),
+) -> dict[str, Any]:
+    image_path = save_machine_image(image) if image and image.filename else None
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO machines (name, model, department, status, image_path) VALUES (?, ?, ?, ?, ?)",
+            (name, model, department, status, image_path),
         )
         conn.commit()
         machine_id = cursor.lastrowid
@@ -141,12 +171,59 @@ def update_machine(machine_id: int, machine: MachineUpdate) -> dict[str, Any]:
     return get_machine(machine_id)
 
 
+@app.put("/machines/{machine_id}/form")
+async def update_machine_form(
+    machine_id: int,
+    name: str = Form(...),
+    model: str = Form(...),
+    department: str = Form(...),
+    status: str = Form("Running"),
+    image: UploadFile | None = File(None),
+) -> dict[str, Any]:
+    machine = get_machine_or_404(machine_id)
+    image_path = machine.get("image_path") or machine.get("imagePath")
+    if image and image.filename:
+        if image_path and Path(image_path).exists():
+            Path(image_path).unlink()
+        image_path = save_machine_image(image)
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE machines
+            SET name = ?, model = ?, department = ?, status = ?, image_path = ?
+            WHERE id = ?
+            """,
+            (name, model, department, status, image_path, machine_id),
+        )
+        conn.commit()
+    return get_machine(machine_id)
+
+
+@app.get("/machines/{machine_id}/image")
+def get_machine_image(machine_id: int):
+    machine = get_machine(machine_id)
+    image_path = machine.get("imagePath")
+    if not image_path or not Path(image_path).exists():
+        raise HTTPException(status_code=404, detail="Machine image not found")
+
+    media_type, _ = mimetypes.guess_type(image_path)
+    return FileResponse(
+        image_path,
+        media_type=media_type or "application/octet-stream",
+        headers={"Content-Disposition": "inline"},
+    )
+
+
 @app.delete("/machines/{machine_id}")
 def delete_machine(machine_id: int) -> dict[str, str]:
-    get_machine_or_404(machine_id)
+    machine = get_machine_or_404(machine_id)
     with get_connection() as conn:
         conn.execute("DELETE FROM machines WHERE id = ?", (machine_id,))
         conn.commit()
+    image_path = machine.get("image_path") or machine.get("imagePath")
+    if image_path and Path(image_path).exists():
+        Path(image_path).unlink()
     return {"message": "Machine deleted"}
 
 

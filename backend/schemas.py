@@ -15,6 +15,7 @@ class MachineCreate(BaseModel):
     model: str = Field(min_length=1)
     department: str = Field(min_length=1)
     status: MachineStatus = "Running"
+    image_path: str | None = None
 
 
 class MachineUpdate(BaseModel):
@@ -22,6 +23,7 @@ class MachineUpdate(BaseModel):
     model: str | None = None
     department: str | None = None
     status: MachineStatus | None = None
+    image_path: str | None = None
 
 
 class CaseCreate(BaseModel):

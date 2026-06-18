@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +9,6 @@ from typing import Any
 OCR_RENDER_SCALE = 3
 EMBEDDED_TEXT_MIN_CHARS = 80
 OCR_HIGHLIGHT_MIN_CONFIDENCE = 8
-OCR_FUZZY_MATCH_MIN_CONFIDENCE = 20
-OCR_FUZZY_MATCH_RATIO = 0.72
 
 
 def _configure_tesseract() -> None:
@@ -103,19 +100,137 @@ def _normalized_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
-def _is_match(normalized_word: str, normalized_query_tokens: list[str]) -> tuple[bool, bool]:
-    for token in normalized_query_tokens:
-        if (
-            normalized_word == token
-            or normalized_word in token
-            or token in normalized_word
-        ):
-            return True, False
+def _collect_pass_boxes(
+    data: dict[str, list[Any]],
+    normalized_query_tokens: list[str],
+    image_width: int,
+    image_height: int,
+    seen_boxes: set[tuple[int, int, int, int]],
+) -> list[dict[str, object]]:
+    boxes: list[dict[str, object]] = []
 
-        if SequenceMatcher(None, normalized_word, token).ratio() >= OCR_FUZZY_MATCH_RATIO:
-            return True, True
+    total_items = len(data["text"])
+    if len(normalized_query_tokens) == 1:
+        token = normalized_query_tokens[0]
+        for index in range(total_items):
+            raw_text = str(data["text"][index] or "").strip()
+            confidence = str(data["conf"][index] or "").strip()
+            normalized_word = _normalized_token(raw_text)
+            if not raw_text or normalized_word != token:
+                continue
 
-    return False, False
+            parsed_confidence = 0.0
+            try:
+                if confidence:
+                    parsed_confidence = float(confidence)
+            except ValueError:
+                parsed_confidence = 0.0
+
+            if parsed_confidence < OCR_HIGHLIGHT_MIN_CONFIDENCE:
+                continue
+
+            left = int(data["left"][index])
+            top = int(data["top"][index])
+            width = int(data["width"][index])
+            height = int(data["height"][index])
+            if width <= 0 or height <= 0:
+                continue
+
+            dedupe_key = (
+                round(left / image_width * 1000),
+                round(top / image_height * 1000),
+                round(width / image_width * 1000),
+                round(height / image_height * 1000),
+            )
+            if dedupe_key in seen_boxes:
+                continue
+            seen_boxes.add(dedupe_key)
+
+            boxes.append(
+                {
+                    "text": raw_text,
+                    "leftRatio": max(0.0, (left - 4) / image_width),
+                    "topRatio": max(0.0, (top - 2) / image_height),
+                    "widthRatio": min(1.0, (width + 8) / image_width),
+                    "heightRatio": min(1.0, (height + 4) / image_height),
+                }
+            )
+        return boxes
+
+    rows: dict[tuple[int, int, int], list[dict[str, Any]]] = {}
+    for index in range(total_items):
+        raw_text = str(data["text"][index] or "").strip()
+        confidence = str(data["conf"][index] or "").strip()
+        normalized_word = _normalized_token(raw_text)
+        if not raw_text or not normalized_word:
+            continue
+
+        try:
+            parsed_confidence = float(confidence) if confidence else 0.0
+        except ValueError:
+            parsed_confidence = 0.0
+        if parsed_confidence < OCR_HIGHLIGHT_MIN_CONFIDENCE:
+            continue
+
+        width = int(data["width"][index])
+        height = int(data["height"][index])
+        if width <= 0 or height <= 0:
+            continue
+
+        row_key = (
+            int(data["block_num"][index]),
+            int(data["par_num"][index]),
+            int(data["line_num"][index]),
+        )
+        rows.setdefault(row_key, []).append(
+            {
+                "index": index,
+                "text": raw_text,
+                "normalized": normalized_word,
+                "left": int(data["left"][index]),
+                "top": int(data["top"][index]),
+                "width": width,
+                "height": height,
+            }
+        )
+
+    for row_words in rows.values():
+        row_words.sort(key=lambda item: item["index"])
+        normalized_words = [item["normalized"] for item in row_words]
+        token_count = len(normalized_query_tokens)
+        for start in range(0, max(0, len(row_words) - token_count + 1)):
+            if normalized_words[start : start + token_count] != normalized_query_tokens:
+                continue
+
+            matched = row_words[start : start + token_count]
+            left = min(item["left"] for item in matched)
+            top = min(item["top"] for item in matched)
+            right = max(item["left"] + item["width"] for item in matched)
+            bottom = max(item["top"] + item["height"] for item in matched)
+            width = right - left
+            height = bottom - top
+
+            dedupe_key = (
+                round(left / image_width * 1000),
+                round(top / image_height * 1000),
+                round(width / image_width * 1000),
+                round(height / image_height * 1000),
+            )
+            if dedupe_key in seen_boxes:
+                continue
+            seen_boxes.add(dedupe_key)
+
+            boxes.append(
+                {
+                    "text": " ".join(item["text"] for item in matched),
+                    "leftRatio": max(0.0, (left - 4) / image_width),
+                    "topRatio": max(0.0, (top - 2) / image_height),
+                    "widthRatio": min(1.0, (width + 8) / image_width),
+                    "heightRatio": min(1.0, (height + 4) / image_height),
+                }
+            )
+
+    return boxes
 
 
 def _should_run_ocr(text: str) -> bool:
@@ -235,62 +350,18 @@ def extract_page_highlight_boxes(
                 "Install Tesseract or set the TESSERACT_CMD environment variable."
             ) from exc
 
-        boxes: list[dict[str, object]] = []
         seen_boxes: set[tuple[int, int, int, int]] = set()
-
+        boxes: list[dict[str, object]] = []
         for data in ocr_passes:
-            total_items = len(data["text"])
-            for index in range(total_items):
-                raw_text = str(data["text"][index] or "").strip()
-                confidence = str(data["conf"][index] or "").strip()
-                normalized_word = _normalized_token(raw_text)
-
-                if not raw_text or not normalized_word:
-                    continue
-
-                parsed_confidence = 0.0
-                try:
-                    if confidence:
-                        parsed_confidence = float(confidence)
-                except ValueError:
-                    parsed_confidence = 0.0
-
-                matches, is_fuzzy = _is_match(normalized_word, normalized_query_tokens)
-                if not matches:
-                    continue
-
-                if parsed_confidence < OCR_HIGHLIGHT_MIN_CONFIDENCE:
-                    continue
-                if is_fuzzy and parsed_confidence < OCR_FUZZY_MATCH_MIN_CONFIDENCE:
-                    continue
-
-                left = int(data["left"][index])
-                top = int(data["top"][index])
-                width = int(data["width"][index])
-                height = int(data["height"][index])
-
-                if width <= 0 or height <= 0:
-                    continue
-
-                dedupe_key = (
-                    round(left / image_width * 1000),
-                    round(top / image_height * 1000),
-                    round(width / image_width * 1000),
-                    round(height / image_height * 1000),
+            boxes.extend(
+                _collect_pass_boxes(
+                    data,
+                    normalized_query_tokens,
+                    image_width,
+                    image_height,
+                    seen_boxes,
                 )
-                if dedupe_key in seen_boxes:
-                    continue
-                seen_boxes.add(dedupe_key)
-
-                boxes.append(
-                    {
-                        "text": raw_text,
-                        "leftRatio": max(0.0, (left - 4) / image_width),
-                        "topRatio": max(0.0, (top - 2) / image_height),
-                        "widthRatio": min(1.0, (width + 8) / image_width),
-                        "heightRatio": min(1.0, (height + 4) / image_height),
-                    }
-                )
+            )
 
         return {
             "page": page_number,

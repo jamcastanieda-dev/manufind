@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronLeft, ChevronRight, FileWarning, Loader2, Search } from "lucide-react";
 import { z } from "zod";
@@ -76,11 +76,35 @@ function ManualViewerPage() {
     queryKey: ["manual", manualId],
     queryFn: () => api.manual(Number(manualId)),
   });
+  const { data: matchSearchData, isFetching: loadingMatchPages } = useQuery({
+    queryKey: ["manual-match-pages", manualId, query],
+    queryFn: () => api.searchManuals({ q: query, manualId: manualId }),
+    enabled: Boolean(query.trim()),
+    staleTime: 60_000,
+  });
   const { data: highlightData } = useQuery({
     queryKey: ["manual-highlights", manualId, page, query],
     queryFn: () => api.manualHighlights(Number(manualId), page, query),
-    enabled: Boolean(manual?.filePath && query.trim()),
+    enabled: Boolean(query.trim()),
+    staleTime: 60_000,
   });
+
+  const matchingPages = useMemo(
+    () => Array.from(new Set((matchSearchData?.results ?? []).map((result) => result.page))).sort((a, b) => a - b),
+    [matchSearchData],
+  );
+
+  useEffect(() => {
+    if (!query.trim() || matchingPages.length === 0 || matchingPages.includes(page)) return;
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        page: matchingPages[0],
+        q: query,
+      }),
+      replace: true,
+    });
+  }, [matchingPages, navigate, page, query]);
 
   useEffect(() => {
     setQueryInput(query);
@@ -207,6 +231,20 @@ function ManualViewerPage() {
   }, [page, pageCount, pdfDoc, query]);
 
   const goToPage = (nextPage: number) => {
+    if (query.trim() && matchingPages.length > 0) {
+      const currentIndex = Math.max(0, matchingPages.indexOf(page));
+      const targetIndex = Math.min(Math.max(nextPage, 0), matchingPages.length - 1);
+      navigate({
+        search: (prev) => ({
+          ...prev,
+          page: matchingPages[targetIndex],
+          q: query || undefined,
+        }),
+        replace: matchingPages[targetIndex] === page,
+      });
+      return;
+    }
+
     if (!pageCount) return;
     const safePage = Math.min(Math.max(nextPage, 1), pageCount);
     navigate({
@@ -231,6 +269,10 @@ function ManualViewerPage() {
 
   const missingPdf = manual && !manual.filePath;
   const highlightBoxes: ManualHighlightBox[] = highlightData?.boxes ?? [];
+  const isMatchScoped = query.trim().length > 0 && matchingPages.length > 0;
+  const currentMatchIndex = isMatchScoped ? Math.max(0, matchingPages.indexOf(page)) : -1;
+  const prevDisabled = isMatchScoped ? currentMatchIndex <= 0 : page <= 1 || !pageCount;
+  const nextDisabled = isMatchScoped ? currentMatchIndex >= matchingPages.length - 1 : !pageCount || page >= pageCount;
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -276,15 +318,37 @@ function ManualViewerPage() {
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Page</div>
                   <Badge variant="outline">
-                    {pageCount ? `Page ${Math.min(page, pageCount)} of ${pageCount}` : "No pages"}
+                    {isMatchScoped
+                      ? `Match ${currentMatchIndex + 1} of ${matchingPages.length}`
+                      : pageCount
+                        ? `Page ${Math.min(page, pageCount)} of ${pageCount}`
+                        : "No pages"}
                   </Badge>
                 </div>
+                {isMatchScoped && (
+                  <p className="text-xs text-muted-foreground">
+                    Showing only pages that contain “{query}”. Current PDF page: {page}
+                  </p>
+                )}
+                {query.trim() && !loadingMatchPages && matchingPages.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No indexed pages matched “{query}”.</p>
+                )}
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => goToPage(page - 1)} disabled={page <= 1 || !pageCount}>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => goToPage(isMatchScoped ? currentMatchIndex - 1 : page - 1)}
+                    disabled={prevDisabled}
+                  >
                     <ChevronLeft className="mr-2 h-4 w-4" />
                     Previous
                   </Button>
-                  <Button variant="outline" className="flex-1" onClick={() => goToPage(page + 1)} disabled={!pageCount || page >= pageCount}>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => goToPage(isMatchScoped ? currentMatchIndex + 1 : page + 1)}
+                    disabled={nextDisabled}
+                  >
                     Next
                     <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -346,10 +410,10 @@ function ManualViewerPage() {
 
               {!isLoading && manual && !missingPdf && (
                 <div className="space-y-4">
-                  {(loadingPdf || renderingPage) && (
+                  {(loadingPdf || renderingPage || loadingMatchPages) && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      {loadingPdf ? "Loading PDF…" : `Rendering page ${page}…`}
+                      {loadingPdf ? "Loading PDF…" : loadingMatchPages ? "Finding matching pages…" : `Rendering page ${page}…`}
                     </div>
                   )}
 

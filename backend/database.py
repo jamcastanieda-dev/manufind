@@ -8,12 +8,14 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = BASE_DIR / "uploads"
+MACHINE_IMAGE_DIR = UPLOAD_DIR / "machines"
 DB_PATH = Path(os.getenv("MTCE_DB_PATH", DATA_DIR / "mtce_manual_search.db"))
 
 
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    MACHINE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -32,6 +34,12 @@ def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def init_db() -> None:
     ensure_dirs()
     with get_connection() as conn:
@@ -43,6 +51,7 @@ def init_db() -> None:
                 model TEXT NOT NULL,
                 department TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'Running',
+                image_path TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -89,6 +98,7 @@ def init_db() -> None:
             );
             """
         )
+        ensure_column(conn, "machines", "image_path", "TEXT")
         seed_database(conn)
 
 
