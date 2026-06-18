@@ -99,83 +99,48 @@ def init_db() -> None:
             """
         )
         ensure_column(conn, "machines", "image_path", "TEXT")
-        seed_database(conn)
+        remove_seed_data(conn)
 
 
-def seed_database(conn: sqlite3.Connection) -> None:
-    machine_count = conn.execute("SELECT COUNT(*) FROM machines").fetchone()[0]
-    if machine_count > 0:
-        return
-
-    machines = [
-        ("CNC Lathe Alpha", "HL-460X", "Machining Bay 1", "Running"),
-        ("Hydraulic Press B2", "HP-2200", "Press Shop", "Maintenance"),
-        ("Injection Molder", "IM-380T", "Molding Line", "Running"),
-        ("Conveyor System C", "CV-12M", "Assembly", "Idle"),
-        ("Robotic Arm RX-7", "RX-7000", "Assembly", "Running"),
-        ("Laser Cutter", "LC-4kW", "Sheet Metal", "Offline"),
-        ("Welding Cell W3", "WC-300", "Fabrication", "Running"),
-        ("Packaging Line P1", "PL-9X", "Packaging", "Idle"),
-    ]
-    conn.executemany(
-        "INSERT INTO machines (name, model, department, status) VALUES (?, ?, ?, ?)",
-        machines,
+def remove_seed_data(conn: sqlite3.Connection) -> None:
+    seed_machine_names = (
+        "CNC Lathe Alpha",
+        "Hydraulic Press B2",
+        "Injection Molder",
+        "Conveyor System C",
+        "Robotic Arm RX-7",
+        "Laser Cutter",
+        "Welding Cell W3",
+        "Packaging Line P1",
+    )
+    seed_manual_titles = (
+        "CNC Lathe Operation Manual",
+        "CNC Lathe Maintenance Guide",
+        "Hydraulic Press Safety & Setup",
+        "Injection Molder Service Manual",
+        "Robotic Arm Programming Reference",
+        "Laser Cutter Alarm Codes",
+        "Welding Cell Quick Reference",
+    )
+    seed_case_titles = (
+        "Coolant leak under spindle housing",
+        "Press cycle aborts mid-stroke",
+        "Alarm E-204 reoccurring",
+        "Robotic arm jitter on joint 4",
+        "Packaging belt tracking off-center",
+    )
+    seed_history = (
+        ("E-204", "All manuals"),
+        ("spindle lubrication", "CNC Lathe Alpha"),
+        ("light curtain", "Hydraulic Press B2"),
+        ("MOVL command", "Robotic Arm RX-7"),
+        ("chiller flow", "All manuals"),
     )
 
-    manuals = [
-        ("CNC Lathe Operation Manual", 1, "HL460X_operation_v3.pdf", "Indexed", 248, "Operation procedures and HMI codes."),
-        ("CNC Lathe Maintenance Guide", 1, "HL460X_maintenance.pdf", "Indexed", 132, "Preventive maintenance and lubrication guide."),
-        ("Hydraulic Press Safety & Setup", 2, "HP2200_safety.pdf", "Indexed", 96, "Safety, setup, and light curtain checks."),
-        ("Injection Molder Service Manual", 3, "IM380T_service.pdf", "Processing", 412, "Service procedures and alarm references."),
-        ("Robotic Arm Programming Reference", 5, "RX7000_programming.pdf", "Indexed", 320, "Robot movement commands and calibration."),
-        ("Laser Cutter Alarm Codes", 6, "LC4kW_alarms.pdf", "Indexed", 58, "Alarm codes, chiller flow, and reset procedures."),
-        ("Welding Cell Quick Reference", 7, "WC300_quickref.pdf", "Indexed", 44, "Quick setup and troubleshooting reference."),
-    ]
+    conn.executemany("DELETE FROM manuals WHERE title = ?", [(title,) for title in seed_manual_titles])
+    conn.executemany("DELETE FROM cases WHERE title = ?", [(title,) for title in seed_case_titles])
+    conn.executemany("DELETE FROM machines WHERE name = ?", [(name,) for name in seed_machine_names])
     conn.executemany(
-        """
-        INSERT INTO manuals (title, machine_id, file_name, status, pages, description)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        manuals,
-    )
-
-    page_rows = [
-        (6, 23, "Alarm E-204 indicates a chiller flow rate below 4 L/min. Verify coolant level and inspect the inline filter for blockage before resetting the alarm."),
-        (2, 87, "Spindle lubrication procedure: apply 5ml of ISO VG 32 oil to the front bearing every 500 operating hours. Refer to figure 4-12 for port location."),
-        (1, 142, "Error code E-204 on the HMI signals a servo overload on the X-axis. Clear chips from the way cover and verify ball screw alignment."),
-        (5, 56, "Use MOVL command for linear interpolation. Set speed parameter between 10-1500 mm/s based on payload calibration."),
-        (3, 12, "Light curtain must be tested before each shift. Replace transmitter unit P/N 88421-A if any segment fails self-test."),
-        (1, 35, "Before startup, confirm hydraulic pressure, spindle guard lock, coolant level, and emergency stop circuit reset status."),
-        (7, 18, "For weld quality concerns, inspect torch alignment, wire feed tension, and shielding gas flow before changing program parameters."),
-    ]
-    conn.executemany(
-        "INSERT INTO manual_pages (manual_id, page_number, text) VALUES (?, ?, ?)",
-        page_rows,
-    )
-
-    cases = [
-        ("Coolant leak under spindle housing", 1, "High", "In Progress", "M. Hassan", "Slow drip from rear of spindle assembly; suspect seal degradation."),
-        ("Press cycle aborts mid-stroke", 2, "Critical", "Open", "J. Tanaka", "E-stop triggers intermittently during downstroke. Light curtain self-test passes."),
-        ("Alarm E-204 reoccurring", 6, "High", "Open", "L. Park", "Chiller alarm clears but returns after 30 minutes of cutting."),
-        ("Robotic arm jitter on joint 4", 5, "Medium", "Resolved", "R. Costa", "Replaced encoder cable, calibration completed."),
-        ("Packaging belt tracking off-center", 8, "Low", "Open", "A. Singh", "Belt drifts about 5mm to operator side over a shift."),
-    ]
-    conn.executemany(
-        """
-        INSERT INTO cases (title, machine_id, priority, status, created_by, description)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        cases,
-    )
-
-    history = [
-        ("E-204", "All manuals", 4),
-        ("spindle lubrication", "CNC Lathe Alpha", 2),
-        ("light curtain", "Hydraulic Press B2", 3),
-        ("MOVL command", "Robotic Arm RX-7", 6),
-        ("chiller flow", "All manuals", 5),
-    ]
-    conn.executemany(
-        "INSERT INTO search_history (keyword, scope, results_count) VALUES (?, ?, ?)",
-        history,
+        "DELETE FROM search_history WHERE keyword = ? AND scope = ?",
+        seed_history,
     )

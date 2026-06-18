@@ -26,7 +26,7 @@ Open the API docs:
 http://127.0.0.1:8000/docs
 ```
 
-The SQLite database is created automatically at `backend/data/mtce_manual_search.db` and seeded with sample machines, manuals, cases, and searchable manual text.
+The SQLite database is created automatically at `backend/data/mtce_manual_search.db`. Add your machines, manuals, and cases through the app or API.
 
 The project uses a single repo-level virtual environment at `.venv/`. Do not create `backend/.venv`.
 

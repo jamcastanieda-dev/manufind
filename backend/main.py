@@ -109,11 +109,7 @@ def dashboard() -> dict[str, Any]:
         "manuals": manuals,
         "cases": cases,
         "searchHistory": history,
-        "recentActivity": [
-            {"id": "a1", "text": "FastAPI backend connected to SQLite", "time": "Now"},
-            {"id": "a2", "text": "Manual search endpoint is ready", "time": "Now"},
-            {"id": "a3", "text": "Sample machines, manuals, cases, and search pages seeded", "time": "Now"},
-        ],
+        "recentActivity": [],
     }
 
 
@@ -530,9 +526,9 @@ def get_manual_file(manual_id: int):
     file_path = manual.get("filePath")
     if not file_path or not Path(file_path).exists():
         return PlainTextResponse(
-            f"Demo manual: {manual['title']}\n\n"
-            "This seeded manual has searchable sample text in SQLite, but no original PDF file. "
-            "Upload a real PDF from the Upload Manual page to open the actual document here.",
+            f"Manual: {manual['title']}\n\n"
+            "This manual record is searchable, but the original PDF file is not available on the backend. "
+            "Upload the source PDF from the Upload Manual page to open the document here.",
             media_type="text/plain",
         )
     return FileResponse(

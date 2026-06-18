@@ -52,7 +52,7 @@ export function AppSidebar() {
           </div>
           <div className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
             <span className="font-display text-sm font-semibold tracking-tight text-sidebar-accent-foreground">
-              MTCE Manual
+              ManuFind
             </span>
             <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-sidebar-foreground/60">
               v1.0 · live

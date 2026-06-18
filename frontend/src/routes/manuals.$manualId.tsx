@@ -82,7 +82,7 @@ function ManualViewerPage() {
     enabled: Boolean(query.trim()),
     staleTime: 60_000,
   });
-  const { data: highlightData } = useQuery({
+  const { data: highlightData, isFetching: loadingHighlights } = useQuery({
     queryKey: ["manual-highlights", manualId, page, query],
     queryFn: () => api.manualHighlights(Number(manualId), page, query),
     enabled: Boolean(query.trim()),
@@ -189,8 +189,9 @@ function ManualViewerPage() {
         canvas.width = viewport.width;
         canvas.height = viewport.height;
 
-        await pdfPage.render({ canvasContext: context, viewport }).promise;
-        const textContent = await pdfPage.getTextContent();
+        const renderTask = pdfPage.render({ canvasContext: context, viewport });
+        const textContentPromise = pdfPage.getTextContent();
+        const [, textContent] = await Promise.all([renderTask.promise, textContentPromise]);
         const textItems = textContent.items
           .filter((item: any) => typeof item.str === "string" && item.str.trim().length > 0)
           .map((item: any, index: number) => {
@@ -269,10 +270,12 @@ function ManualViewerPage() {
 
   const missingPdf = manual && !manual.filePath;
   const highlightBoxes: ManualHighlightBox[] = highlightData?.boxes ?? [];
+  const hasNativeHighlights = viewerText.some((item) => hasHighlight(item.segments));
   const isMatchScoped = query.trim().length > 0 && matchingPages.length > 0;
   const currentMatchIndex = isMatchScoped ? Math.max(0, matchingPages.indexOf(page)) : -1;
   const prevDisabled = isMatchScoped ? currentMatchIndex <= 0 : page <= 1 || !pageCount;
   const nextDisabled = isMatchScoped ? currentMatchIndex >= matchingPages.length - 1 : !pageCount || page >= pageCount;
+  const showHighlightLoading = loadingHighlights && !hasNativeHighlights && highlightBoxes.length === 0;
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -396,10 +399,10 @@ function ManualViewerPage() {
                 <div className="flex min-h-[520px] flex-col items-center justify-center gap-4 text-center">
                   <FileWarning className="h-10 w-10 text-amber-500" />
                   <div className="space-y-2">
-                    <p className="text-lg font-semibold">This demo manual has no uploaded PDF file.</p>
+                    <p className="text-lg font-semibold">This manual has no uploaded PDF file.</p>
                     <p className="max-w-xl text-sm text-muted-foreground">
-                      The seeded record is searchable, but the original document is not stored on the backend. Upload a real PDF from the
-                      upload page to view it here with page navigation and highlights.
+                      This manual record is searchable, but the original document is not stored on the backend. Upload the source PDF from
+                      the upload page to view it here with page navigation and highlights.
                     </p>
                   </div>
                   <Button asChild>
@@ -410,10 +413,16 @@ function ManualViewerPage() {
 
               {!isLoading && manual && !missingPdf && (
                 <div className="space-y-4">
-                  {(loadingPdf || renderingPage || loadingMatchPages) && (
+                  {(loadingPdf || renderingPage || loadingMatchPages || showHighlightLoading) && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      {loadingPdf ? "Loading PDF…" : loadingMatchPages ? "Finding matching pages…" : `Rendering page ${page}…`}
+                      {loadingPdf
+                        ? "Loading PDF…"
+                        : loadingMatchPages
+                          ? "Loading PDF matches…"
+                          : showHighlightLoading
+                            ? "Loading PDF highlights…"
+                            : `Rendering page ${page}…`}
                     </div>
                   )}
 
