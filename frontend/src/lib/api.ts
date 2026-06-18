@@ -1,4 +1,24 @@
-export const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+const browserHost =
+  typeof window !== "undefined" ? window.location.hostname : "127.0.0.1";
+
+function resolveApiUrl() {
+  const configured = import.meta.env.VITE_API_URL?.trim();
+  if (!configured) {
+    return `http://${browserHost}:8000`;
+  }
+
+  try {
+    const url = new URL(configured);
+    if (!url.port) {
+      url.port = "8000";
+    }
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return `http://${browserHost}:8000`;
+  }
+}
+
+export const API_URL = resolveApiUrl();
 
 export type MachineStatus = "Running" | "Idle" | "Maintenance" | "Offline";
 export type CasePriority = "Low" | "Medium" | "High" | "Critical";
